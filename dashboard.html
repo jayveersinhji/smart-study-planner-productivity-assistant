@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Study Dashboard</title>
+<style>
+body { font-family: Arial,sans-serif; background:#f4f6f8; margin:0; padding:20px; }
+h1,h2,h3 { color:#2575fc; }
+#planner, #progress { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:20px; margin-top:20px; }
+.planner-card, .progress-card { background:white; padding:20px; border-radius:10px; box-shadow:0 5px 15px rgba(0,0,0,0.1); }
+input, button { padding:10px; margin:5px 0; width:100%; border-radius:5px; border:1px solid #ccc; }
+button { background:#2575fc; color:white; border:none; cursor:pointer; }
+button:hover { background:#6a11cb; }
+.summary { display:flex; gap:20px; margin-top:20px; }
+.summary div { flex:1; background:white; padding:20px; border-radius:10px; box-shadow:0 5px 15px rgba(0,0,0,0.1); text-align:center; }
+.progress-bar { background:#eee; border-radius:20px; overflow:hidden; height:14px; margin-top:5px; }
+.progress-fill { height:100%; background:linear-gradient(90deg,#6a11cb,#2575fc); }
+</style>
+</head>
+<body>
+
+<h1>Smart Study Dashboard</h1>
+
+<!-- Summary -->
+<div class="summary">
+  <div><h3>Completed</h3><p id="completedCourses">0</p></div>
+  <div><h3>Ongoing</h3><p id="ongoingCourses">0</p></div>
+  <div><h3>Achievements</h3><p id="achievements">0</p></div>
+</div>
+
+<!-- Add Task Form -->
+<div id="addTaskForm">
+  <h2>Add New Task</h2>
+  <input type="text" id="taskTitle" placeholder="Task Title">
+  <input type="text" id="subjectId" placeholder="Subject ID (e.g. math101)">
+  <input type="date" id="deadline">
+  <input type="number" id="estimatedHours" placeholder="Estimated Hours">
+  <button onclick="addNewTask()">Add Task</button>
+</div>
+
+<h2>Today's Tasks</h2>
+<div id="planner"></div>
+
+<h2>Progress Overview</h2>
+<div id="progress"></div>
+
+<script type="module">
+import { auth, addTask, getTodaysTasks, getSubjects } from "./js/firebase.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
+import { Timestamp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
+
+const plannerDiv = document.getElementById("planner");
+const progressDiv = document.getElementById("progress");
+const completedEl = document.getElementById("completedCourses");
+const ongoingEl = document.getElementById("ongoingCourses");
+const achievementsEl = document.getElementById("achievements");
+
+let tasks = [];
+let subjects = [];
+
+onAuthStateChanged(auth, async user => {
+  if (!user) {
+    alert("Not logged in");
+    window.location = "auth.html";
+    return;
+  }
+
+  // Load tasks & subjects
+  tasks = await getTodaysTasks(user.uid);
+  subjects = await getSubjects(user.uid);
+
+  updateDashboard();
+});
+
+// Update dashboard UI
+async function updateDashboard() {
+  // Tasks
+  plannerDiv.innerHTML = "";
+  if (tasks.length === 0) plannerDiv.innerHTML = "<p>No tasks yet.</p>";
+  tasks.forEach(task => {
+    const div = document.createElement("div");
+    div.classList.add("planner-card");
+    div.innerHTML = `
+      <h3>${task.taskTitle}</h3>
+      <p>Subject: ${task.subjectId}</p>
+      <p>Deadline: ${task.deadline.toDate().toDateString()}</p>
+      <p>Hours: ${task.estimatedHours}</p>
+    `;
+    plannerDiv.appendChild(div);
+  });
+
+  // Progress
+  progressDiv.innerHTML = "";
+  let completed = 0, ongoing = 0;
+  subjects.forEach(sub => {
+    const percent = Math.round((sub.completedTopics/sub.totalTopics)*100);
+    const div = document.createElement("div");
+    div.classList.add("progress-card");
+    div.innerHTML = `
+      <h3>${sub.subjectName}</h3>
+      <p>${percent}% completed</p>
+      <div class="progress-bar"><div class="progress-fill" style="width:${percent}%"></div></div>
+    `;
+    progressDiv.appendChild(div);
+
+    if (percent === 100) completed++;
+    else ongoing++;
+  });
+
+  completedEl.textContent = completed + " Courses";
+  ongoingEl.textContent = ongoing + " Courses";
+
+  // Achievements = number of completed tasks
+  const doneTasks = tasks.filter(t => t.isCompleted).length;
+  achievementsEl.textContent = doneTasks + " Badges";
+}
+
+// Add task from form
+window.addNewTask = async () => {
+  const title = document.getElementById("taskTitle").value;
+  const subject = document.getElementById("subjectId").value;
+  const deadlineInput = document.getElementById("deadline").value;
+  const hours = document.getElementById("estimatedHours").value;
+
+  if (!title || !subject || !deadlineInput || !hours) {
+    alert("Please fill all fields!");
+    return;
+  }
+
+  const deadline = Timestamp.fromDate(new Date(deadlineInput));
+  const user = auth.currentUser;
+
+  await addTask(user.uid, subject, title, deadline, Number(hours), 0);
+  alert("Task added!");
+
+  // Refresh dashboard
+  tasks = await getTodaysTasks(user.uid);
+  updateDashboard();
+
+  // Clear form
+  document.getElementById("taskTitle").value = "";
+  document.getElementById("subjectId").value = "";
+  document.getElementById("deadline").value = "";
+  document.getElementById("estimatedHours").value = "";
+};
+</script>
+</body>
+</html>
